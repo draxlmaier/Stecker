@@ -1,0 +1,16 @@
+.App {
+  text-align: center;
+  padding: 2rem;
+  background-size: cover;
+}
+.App-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  justify-content: center;
+}
+button {
+  margin-top: 1rem;
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+}
