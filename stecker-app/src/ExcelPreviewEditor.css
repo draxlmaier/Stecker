@@ -1,0 +1,55 @@
+/* src/ExcelPreviewEditor.css */
+.preview-container {
+  overflow: auto;
+  margin: 1rem 0;
+}
+
+/* make sure the table is wide enough for all 17 cols */
+.preview {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 1200px;
+}
+
+/* base cell styles */
+.preview th,
+.preview td {
+  border: 1px solid #666;
+  padding: 4px;
+  text-align: center;
+}
+
+/* header inputs/textareas */
+.hdr-input {
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+  font-weight: bold;
+}
+.hdr-textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* normal data cell */
+.cell-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  text-align: center;
+}
+
+/* grey placeholder columns (F and J–K) */
+.preview th:nth-child(6),
+.preview td:nth-child(6),
+.preview th:nth-child(10),
+.preview td:nth-child(10),
+.preview th:nth-child(11),
+.preview td:nth-child(11)
+{
+  background-color: #D3D3D3;
+}
+/* if you’d rather use explicit classes, e.g. <th class="placeholder">… */
+.placeholder {
+  background-color: #D3D3D3;
+}

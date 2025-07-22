@@ -1,7 +1,8 @@
+// src/FileUploader.jsx
 import React, { useState } from 'react';
 import ExcelJS from 'exceljs';
 
-// same color‐map & helper as before
+// color map helper
 const colorMap = {
   R: "FF0000", G: "FFFF00", I: "00FF00", H: "808080",
   P: "FFC0CB", C: "A52A2A", B: "0000FF", S: "000000",
@@ -9,113 +10,143 @@ const colorMap = {
 };
 function getColors(matnr) {
   if (!matnr) return [null, null];
-  const s = String(matnr).slice(-3);
-  const [f, s2] = [s[0], s[1]];
-  const c1 = colorMap[f], c2 = colorMap[s2] || c1;
+  const s = String(matnr).slice(-3),
+        f = s[0], s2 = s[1],
+        c1 = colorMap[f],
+        c2 = colorMap[s2] || c1;
   return [c1, s2 === "X" ? c1 : c2];
 }
 
 export default function FileUploader({ onDataReady }) {
-  const [file, setFile]       = useState(null);
-  const [fileName, setFileName] = useState('');
+  const [file, setFile] = useState(null);
+  const [name, setName] = useState("");
 
   const onFileChange = e => {
     const f = e.target.files[0];
-    if (f) {
-      setFile(f);
-      setFileName(f.name);
-    }
+    setFile(f || null);
+    setName(f ? f.name : "");
   };
 
   const loadAndProcess = async e => {
     e.preventDefault();
-    if (!file) {
-      alert('Please select a file first.');
-      return;
-    }
+    if (!file) return alert("Select an .xlsx first");
 
-    // 1) Load workbook
+    // 1) load workbook & sheet
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(await file.arrayBuffer());
     const ws = wb.worksheets[0];
 
-    // 2) Build header→colIndex map
-    const headerMap = {};
-    ws.getRow(1).eachCell((cell, colNumber) => {
-      const h = cell.value && cell.value.toString().trim();
-      if (h) headerMap[h] = colNumber;
+    // 2) header → col map
+    const H = {};
+    ws.getRow(1).eachCell((cell, idx) => {
+      const t = (cell.value || "").toString().trim();
+      if (t) H[t] = idx;
     });
 
-    // 3) Extract rows into JS objects
+    // 3) read raw rows
     const raw = [];
-    ws.eachRow({ includeEmpty: false }, (row, rowNum) => {
-      if (rowNum === 1) return; // skip header
+    ws.eachRow({ includeEmpty: false }, (row, rn) => {
+      if (rn === 1) return;
       raw.push({
-        FPNR:      row.getCell(headerMap['FPNR']).value,
-        KABEL:     row.getCell(headerMap['KABEL']).value,
-        MATNR:     row.getCell(headerMap['MATNR']).value,
-        MENGE:     row.getCell(headerMap['NMENGE'] || headerMap['MENGE']).value,
-        KSTST:     row.getCell(headerMap['FB']    || headerMap['KSTST']).value,
-        DPG:       row.getCell(headerMap['DPG']).value,
-        POSITION:  row.getCell(headerMap['POSITION'] || headerMap['TEXT1']).value,
-        KAMMERNR:  row.getCell(headerMap['KAMMERNR'] || headerMap['BMNR']).value,
+        FPNR:     row.getCell(H["FPNR"]).value,
+        KABEL:    row.getCell(H["KABEL"]).value,
+        MATNR:    row.getCell(H["MATNR"]).value,
+        MENGE:    row.getCell(H["NMENGE"] || H["MENGE"]).value,
+        KSTST:    row.getCell(H["FB"]   || H["KSTST"]).value,
+        DPG:      row.getCell(H["DPG"]).value,
+        POSITION: row.getCell(H["POSITION"] || H["TEXT1"]).value,
+        KAMMERNR: row.getCell(H["KAMMERNR"] || H["BMNR"]).value,
       });
     });
 
-    // 4) Filter + group
-    const filtered = raw.filter(r => Number(r.KSTST) === 3211);
-    if (filtered.length === 0) {
-      alert('No rows matched KSTST = 3211');
-      return;
+    // 4) filter + group by cable
+    const byCable = {};
+    raw
+      .filter(r => Number(r.KSTST) === 3211 && r.MENGE !== 0 && r.MATNR != null)
+      .forEach(r => {
+        (byCable[r.KABEL] ||= []).push(r);
+      });
+
+    // 5) sort each group by POSITION (so the main conductor is first)
+    Object.values(byCable).forEach(grp => {
+      grp.sort((a, b) =>
+        (a.POSITION || "").localeCompare(b.POSITION || "")
+      );
+    });
+
+    // 6) build final out array
+    const out = [];
+    Object.entries(byCable).forEach(([cable, grp]) => {
+      // --- main conductor info ---
+      const main = grp[0];
+      const mainMat = main.MATNR;
+      const [c1, c2] = getColors(mainMat);
+      const length   = main.MENGE;
+      const dpg      = main.DPG;
+
+      // --- find by prefix in entire group ---
+      // side‐1 cosse = last "A…" entry
+      const allMats = grp.map(r => r.MATNR);
+      const cos1Mat = allMats.slice().reverse().find(m => m.startsWith("A")) || "";
+      // side‐1 tulle = first "T…" entry
+      const tul1Mat = allMats.find(m => m.startsWith("T")) || "";
+      // find the row where cos1 lives, to get Pos1/Kam1
+      const cos1Row = grp.find(r => r.MATNR === cos1Mat) || {};
+      const pos1    = cos1Row.POSITION  || "";
+      const kam1    = cos1Row.KAMMERNR  || "";
+
+      // side‐2 matériel = first "G…" entry
+      const mat2 = allMats.find(m => m.startsWith("G")) || "";
+      // side‐2 cosse = first "A…" after mainMat
+      const cos2Mat = allMats.find(m => m.startsWith("A") && m !== cos1Mat) || "";
+      // side‐2 tulle = first "T…" entry (same rule as 1)
+      const tul2Mat = tul1Mat;
+      // side‐2 Pos/Kam = the first non‐empty POSITION row that isn't main
+      const pos2Row = grp.find(r => r.POSITION && r.POSITION !== main.POSITION) || {};
+      const pos2    = pos2Row.POSITION  || "";
+      const kam2    = pos2Row.KAMMERNR  || "";
+
+      out.push({
+        "Pos Nr. (Côté 1)" : pos1,
+        "DPG (Côté 1)"     : dpg,
+        "Matériel (Côté 1)": "",
+        "Kam (Côté 1)"     : kam1,
+        "Cosse (Côté 1)"   : cos1Mat,
+        "Tulle (Côté 1)"   : tul1Mat,
+
+        "Câble"            : cable,
+        "Matériel"         : mainMat,
+        "section"          : "",
+        "Longueur (mm)"    : length,
+
+        "Couleur 1"        : c1,
+        "Couleur 2"        : c2,
+
+        "Pos Nr. (Côté 2)": pos2,
+        "Matériel (Côté 2)": mat2,
+        "Kam (Côté 2)"    : kam2,
+        "Cosse (Côté 2)"  : cos2Mat,
+        "Tulle (Côté 2)"  : tul2Mat,
+      });
+    });
+
+    if (!out.length) {
+      return alert("No data matched your filters.");
     }
-    const groups = {};
-    filtered.forEach(r => {
-      if (r.MENGE !== 0 && r.MATNR != null) {
-        (groups[r.KABEL] = groups[r.KABEL] || []).push(r);
-      }
-    });
 
-    // 5) Build outData
-    const outData = [];
-    Object.entries(groups).forEach(([cable, grp]) => {
-      const pos   = [...new Set(grp.map(r=>r.POSITION))].filter(v=>v!=null);
-      const kam   = [...new Set(grp.map(r=>r.KAMMERNR))].filter(v=>v!=null).map(String);
-      const mat   = [...new Set(grp.map(r=>r.MATNR))].filter(v=>v!=null);
-      const men   = [...new Set(grp.map(r=>String(r.MENGE)))].filter(v=>v!=null);
-      const dpg   = grp[0].DPG || '';
-      const [c1,c2] = getColors(mat[0]);
-      const extra  = mat.slice(4);
+    // 7) derive module & stand
+    const fp = raw[0].FPNR.toString();
+    const moduleCode = fp.slice(0, -3);
+    const stand      = fp.slice(-3);
 
-      outData.push({
-        "Pos Nr. (Côté 1)":  pos[1]||'',
-        "DPG (Côté 1)":       +dpg  || '',
-        "Matériel (Côté 1)":  '',
-        "Kam (Côté 1)":       kam[1]|| '',
-        "Cosse (Côté 1)":     mat[mat.length-1]|| '',
-        "Tulle (Côté 1)":     '',
-        "Câble":              cable,
-        "Matériel":           mat[0]|| '',
-        "section":            '',
-        "Longueur (mm)":      men[0]|| '',
-        "Couleur1":           c1,
-        "Couleur2":           c2,
-        "Pos Nr. (Côté 2)":   pos[0]|| '',
-        "Matériel (Côté 2)":  extra[0]|| '',
-        "Kam (Côté 2)":       kam[0]|| '',
-        "Cosse (Côté 2)":     mat[2]|| '',
-        "Tulle (Côté 2)":     mat[1]|| ''
-      });
-    });
-
-    // 6) Hand back to parent
-    onDataReady(outData);
+    onDataReady({ module: moduleCode, stand, rows: out });
   };
 
   return (
     <form onSubmit={loadAndProcess}>
-      <input type="file" accept=".xlsx" onChange={onFileChange} />
-      {fileName && <span style={{ marginLeft: 8 }}>{fileName}</span>}
-      <button type="submit" style={{ marginLeft: 12 }}>
+      <input type="file" accept=".xlsx" onChange={onFileChange}/>
+      {name && <span style={{ marginLeft:8 }}>{name}</span>}
+      <button type="submit" style={{ marginLeft:12 }}>
         Load &amp; Preview
       </button>
     </form>
