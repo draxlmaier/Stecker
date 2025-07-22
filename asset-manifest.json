@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/Stecker/static/css/main.3c5c8479.css",
+    "main.js": "/Stecker/static/js/main.17338772.js",
+    "static/js/453.ca478ec7.chunk.js": "/Stecker/static/js/453.ca478ec7.chunk.js",
+    "index.html": "/Stecker/index.html",
+    "main.3c5c8479.css.map": "/Stecker/static/css/main.3c5c8479.css.map",
+    "main.17338772.js.map": "/Stecker/static/js/main.17338772.js.map",
+    "453.ca478ec7.chunk.js.map": "/Stecker/static/js/453.ca478ec7.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.3c5c8479.css",
+    "static/js/main.17338772.js"
+  ]
+}
