@@ -31,19 +31,19 @@ export default function FileUploader({ onDataReady }) {
     e.preventDefault();
     if (!file) return alert("Select an .xlsx first");
 
-    // 1) load workbook & sheet
+    // 1) Load workbook & first sheet
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(await file.arrayBuffer());
     const ws = wb.worksheets[0];
 
-    // 2) header → col map
+    // 2) Map headers → column indices
     const H = {};
     ws.getRow(1).eachCell((cell, idx) => {
       const t = (cell.value || "").toString().trim();
       if (t) H[t] = idx;
     });
 
-    // 3) read raw rows
+    // 3) Read raw data rows
     const raw = [];
     ws.eachRow({ includeEmpty: false }, (row, rn) => {
       if (rn === 1) return;
@@ -59,7 +59,7 @@ export default function FileUploader({ onDataReady }) {
       });
     });
 
-    // 4) filter + group by cable
+    // 4) Filter where KSTST=3211 and valid
     const byCable = {};
     raw
       .filter(r => Number(r.KSTST) === 3211 && r.MENGE !== 0 && r.MATNR != null)
@@ -67,45 +67,49 @@ export default function FileUploader({ onDataReady }) {
         (byCable[r.KABEL] ||= []).push(r);
       });
 
-    // 5) sort each group by POSITION (so the main conductor is first)
-    Object.values(byCable).forEach(grp => {
+    // 5) Sort each cable group by POSITION
+    Object.values(byCable).forEach(grp =>
       grp.sort((a, b) =>
         (a.POSITION || "").localeCompare(b.POSITION || "")
-      );
-    });
+      )
+    );
 
-    // 6) build final out array
+    // 6) Build out[]
     const out = [];
     Object.entries(byCable).forEach(([cable, grp]) => {
-      // --- main conductor info ---
+      // main conductor = first row
       const main = grp[0];
       const mainMat = main.MATNR;
       const [c1, c2] = getColors(mainMat);
-      const length   = main.MENGE;
+      const length   = main.MENGE * 1000;       // <-- ×1000
       const dpg      = main.DPG;
 
-      // --- find by prefix in entire group ---
-      // side‐1 cosse = last "A…" entry
+      // gather all MATNRs
       const allMats = grp.map(r => r.MATNR);
+
+      // Côté 1:
+      //  - cosse1 = last "A…"
       const cos1Mat = allMats.slice().reverse().find(m => m.startsWith("A")) || "";
-      // side‐1 tulle = first "T…" entry
+      //  - tulle1 = first "T…"
       const tul1Mat = allMats.find(m => m.startsWith("T")) || "";
-      // find the row where cos1 lives, to get Pos1/Kam1
+      //  find row for cos1 to get pos1/​kam1
       const cos1Row = grp.find(r => r.MATNR === cos1Mat) || {};
-      const pos1    = cos1Row.POSITION  || "";
-      const kam1    = cos1Row.KAMMERNR  || "";
+      let pos1 = cos1Row.POSITION || "";
+      let kam1 = cos1Row.KAMMERNR || "";
 
-      // side‐2 matériel = first "G…" entry
-      const mat2 = allMats.find(m => m.startsWith("G")) || "";
-      // side‐2 cosse = first "A…" after mainMat
-      const cos2Mat = allMats.find(m => m.startsWith("A") && m !== cos1Mat) || "";
-      // side‐2 tulle = first "T…" entry (same rule as 1)
-      const tul2Mat = tul1Mat;
-      // side‐2 Pos/Kam = the first non‐empty POSITION row that isn't main
-      const pos2Row = grp.find(r => r.POSITION && r.POSITION !== main.POSITION) || {};
-      const pos2    = pos2Row.POSITION  || "";
-      const kam2    = pos2Row.KAMMERNR  || "";
+      // Côté 2:
+      //  - mat2 = first "G…"
+      const mat2   = allMats.find(m => m.startsWith("G")) || "";
+      //  - cos2 = first "A…" not used for cos1
+      const cos2Mat= allMats.find(m => m.startsWith("A") && m !== cos1Mat) || "";
+      //  - tulle2 = same tulle1Mat
+      const tul2Mat= tul1Mat;
+      //  - pos2/​kam2 = first non-main POSITION row
+      const pos2Row= grp.find(r => r.POSITION && r.POSITION !== main.POSITION) || {};
+      let pos2 = pos2Row.POSITION || "";
+      let kam2 = pos2Row.KAMMERNR || "";
 
+      // Build the row object
       out.push({
         "Pos Nr. (Côté 1)" : pos1,
         "DPG (Côté 1)"     : dpg,
@@ -116,7 +120,7 @@ export default function FileUploader({ onDataReady }) {
 
         "Câble"            : cable,
         "Matériel"         : mainMat,
-        "section"          : "",
+        "section"          : 0.35,       // <-- default 0.35
         "Longueur (mm)"    : length,
 
         "Couleur 1"        : c1,
@@ -134,20 +138,47 @@ export default function FileUploader({ onDataReady }) {
       return alert("No data matched your filters.");
     }
 
-    // 7) derive module & stand
+    // 7) Build "remarque" = comma-joined all Matériel (Côté 2)
+    const allMat2 = out.map(r => r["Matériel (Côté 2)"]).filter(v => v);
+    const remarque = allMat2.join(", ");
+
+    // 8) Swap logic for certain Pos Nr. (Côté 2) codes
+    const swapKeys = ["A3205701","A3212504","A3212503"];
+    const rowsFixed = out.map(r => {
+      if (swapKeys.includes(r["Pos Nr. (Côté 2)"])) {
+        // swap Pos Nr.
+        [r["Pos Nr. (Côté 1)"], r["Pos Nr. (Côté 2)"]] =
+          [r["Pos Nr. (Côté 2)"], r["Pos Nr. (Côté 1)"]];
+        // swap Cosse
+        [r["Cosse (Côté 1)"], r["Cosse (Côté 2)"]] =
+          [r["Cosse (Côté 2)"], r["Cosse (Côté 1)"]];
+      }
+      return r;
+    });
+
+    // 9) Derive module & stand
     const fp = raw[0].FPNR.toString();
     const moduleCode = fp.slice(0, -3);
     const stand      = fp.slice(-3);
 
-    onDataReady({ module: moduleCode, stand, rows: out });
+    // 10) Notify parent with everything
+    onDataReady({
+      module: moduleCode,
+      stand,
+      rows: rowsFixed,
+      remarque,
+      sectionRows: [
+        { code: "", length: "3.20 (+0.20 / -0.20)" }
+      ]
+    });
   };
 
   return (
     <form onSubmit={loadAndProcess}>
       <input type="file" accept=".xlsx" onChange={onFileChange}/>
-      {name && <span style={{ marginLeft:8 }}>{name}</span>}
-      <button type="submit" style={{ marginLeft:12 }}>
-        Load &amp; Preview
+      {name && <span style={{ marginLeft: 8 }}>{name}</span>}
+      <button type="submit" style={{ marginLeft: 12 }}>
+        Load & Preview
       </button>
     </form>
   );
