@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import ExcelJS from 'exceljs';
 
-// color map helper
+// color‐map helper
 const colorMap = {
   R: "FF0000", G: "FFFF00", I: "00FF00", H: "808080",
   P: "FFC0CB", C: "A52A2A", B: "0000FF", S: "000000",
@@ -18,8 +18,8 @@ function getColors(matnr) {
 }
 
 export default function FileUploader({ onDataReady }) {
-  const [file, setFile] = useState(null);
-  const [name, setName] = useState("");
+  const [file, setFile] = useState(null),
+        [name, setName] = useState("");
 
   const onFileChange = e => {
     const f = e.target.files[0];
@@ -29,21 +29,27 @@ export default function FileUploader({ onDataReady }) {
 
   const loadAndProcess = async e => {
     e.preventDefault();
-    if (!file) return alert("Select an .xlsx first");
+    if (!file) {
+      alert("Select an .xlsx first");
+      return;
+    }
 
-    // 1) Load workbook & first sheet
+    console.log("📥 Loading file:", name);
+
+    // 1) load workbook & sheet
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(await file.arrayBuffer());
     const ws = wb.worksheets[0];
 
-    // 2) Map headers → column indices
+    // 2) map headers → columns
     const H = {};
     ws.getRow(1).eachCell((cell, idx) => {
-      const t = (cell.value || "").toString().trim();
+      const t = (cell.value||"").toString().trim();
       if (t) H[t] = idx;
     });
+    console.log("🔠 Header map:", H);
 
-    // 3) Read raw data rows
+    // 3) read raw rows
     const raw = [];
     ws.eachRow({ includeEmpty: false }, (row, rn) => {
       if (rn === 1) return;
@@ -51,134 +57,145 @@ export default function FileUploader({ onDataReady }) {
         FPNR:     row.getCell(H["FPNR"]).value,
         KABEL:    row.getCell(H["KABEL"]).value,
         MATNR:    row.getCell(H["MATNR"]).value,
-        MENGE:    row.getCell(H["NMENGE"] || H["MENGE"]).value,
-        KSTST:    row.getCell(H["FB"]   || H["KSTST"]).value,
+        MENGE:    row.getCell(H["NMENGE"]||H["MENGE"]).value,
+        KSTST:    row.getCell(H["FB"]   ||H["KSTST"]).value,
         DPG:      row.getCell(H["DPG"]).value,
-        POSITION: row.getCell(H["POSITION"] || H["TEXT1"]).value,
-        KAMMERNR: row.getCell(H["KAMMERNR"] || H["BMNR"]).value,
+        POSITION: row.getCell(H["POSITION"]||H["TEXT1"]).value,
+        KAMMERNR: row.getCell(H["KAMMERNR"]||H["BMNR"]).value,
       });
     });
+    console.log("🔍 Raw rows:", raw);
 
-    // 4) Filter where KSTST=3211 and valid
+    // 4) filter & group by cable
     const byCable = {};
     raw
       .filter(r => Number(r.KSTST) === 3211 && r.MENGE !== 0 && r.MATNR != null)
       .forEach(r => {
         (byCable[r.KABEL] ||= []).push(r);
       });
+    console.log("📦 Groups by cable:", byCable);
 
-    // 5) Sort each cable group by POSITION
+    // 5) sort each group by POSITION
     Object.values(byCable).forEach(grp =>
-      grp.sort((a, b) =>
-        (a.POSITION || "").localeCompare(b.POSITION || "")
-      )
+      grp.sort((a,b)=> (a.POSITION||"").localeCompare(b.POSITION||""))
     );
 
-    // 6) Build out[]
-    const out = [];
+    // 6) build builtRows
+    const builtRows = [];
     Object.entries(byCable).forEach(([cable, grp]) => {
-      // main conductor = first row
-      const main = grp[0];
-      const mainMat = main.MATNR;
-      const [c1, c2] = getColors(mainMat);
-      const length   = main.MENGE * 1000;       // <-- ×1000
-      const dpg      = main.DPG;
+      const main     = grp[0],
+            mainMat  = main.MATNR,
+            [c1,c2]  = getColors(mainMat),
+            length   = Math.round(main.MENGE * 1000),
+            dpg      = main.DPG,
+            allMats  = grp.map(r=>r.MATNR);
 
-      // gather all MATNRs
-      const allMats = grp.map(r => r.MATNR);
+      // side 1
+      const cos1Mat = [...allMats].reverse().find(m=>m.startsWith("A"))||"",
+            tul1Mat = allMats.find(m=>m.startsWith("T"))||"",
+            cos1Row = grp.find(r=>r.MATNR===cos1Mat)||{},
+            pos1    = cos1Row.POSITION||"",
+            kam1    = cos1Row.KAMMERNR||"";
 
-      // Côté 1:
-      //  - cosse1 = last "A…"
-      const cos1Mat = allMats.slice().reverse().find(m => m.startsWith("A")) || "";
-      //  - tulle1 = first "T…"
-      const tul1Mat = allMats.find(m => m.startsWith("T")) || "";
-      //  find row for cos1 to get pos1/​kam1
-      const cos1Row = grp.find(r => r.MATNR === cos1Mat) || {};
-      let pos1 = cos1Row.POSITION || "";
-      let kam1 = cos1Row.KAMMERNR || "";
+      // side 2
+      const mat2    = allMats.find(m=>m.startsWith("G"))||"",
+            cos2Mat = allMats.find(m=>m.startsWith("A") && m!==cos1Mat)||"",
+            tul2Mat = tul1Mat,
+            pos2Row = grp.find(r=>r.POSITION && r.POSITION!==main.POSITION)||{},
+            pos2    = pos2Row.POSITION||"",
+            kam2    = pos2Row.KAMMERNR||"";
 
-      // Côté 2:
-      //  - mat2 = first "G…"
-      const mat2   = allMats.find(m => m.startsWith("G")) || "";
-      //  - cos2 = first "A…" not used for cos1
-      const cos2Mat= allMats.find(m => m.startsWith("A") && m !== cos1Mat) || "";
-      //  - tulle2 = same tulle1Mat
-      const tul2Mat= tul1Mat;
-      //  - pos2/​kam2 = first non-main POSITION row
-      const pos2Row= grp.find(r => r.POSITION && r.POSITION !== main.POSITION) || {};
-      let pos2 = pos2Row.POSITION || "";
-      let kam2 = pos2Row.KAMMERNR || "";
-
-      // Build the row object
-      out.push({
-        "Pos Nr. (Côté 1)" : pos1,
-        "DPG (Côté 1)"     : dpg,
+      builtRows.push({
+        "Pos Nr. (Côté 1)":  pos1,
+        "DPG (Côté 1)":      dpg,
         "Matériel (Côté 1)": "",
-        "Kam (Côté 1)"     : kam1,
-        "Cosse (Côté 1)"   : cos1Mat,
-        "Tulle (Côté 1)"   : tul1Mat,
+        "Kam (Côté 1)":      kam1,
+        "Cosse (Côté 1)":    cos1Mat,
+        "Tulle (Côté 1)":    "",
 
-        "Câble"            : cable,
-        "Matériel"         : mainMat,
-        "section"          : 0.35,       // <-- default 0.35
-        "Longueur (mm)"    : length,
+        "Câble":             cable,
+        "Matériel":          mainMat,
+        "section":           0.35,
+        "Longueur (mm)":     length,
 
-        "Couleur 1"        : c1,
-        "Couleur 2"        : c2,
+        "Couleur 1":         c1,
+        "Couleur 2":         c2,
 
-        "Pos Nr. (Côté 2)": pos2,
+        "Pos Nr. (Côté 2)":  pos2,
         "Matériel (Côté 2)": mat2,
-        "Kam (Côté 2)"    : kam2,
-        "Cosse (Côté 2)"  : cos2Mat,
-        "Tulle (Côté 2)"  : tul2Mat,
+        "Kam (Côté 2)":      kam2,
+        "Cosse (Côté 2)":    cos2Mat,
+        "Tulle (Côté 2)":    tul2Mat,
       });
     });
+    console.log("🚧 builtRows before swap:", builtRows);
 
-    if (!out.length) {
-      return alert("No data matched your filters.");
+    if (!builtRows.length) {
+      alert("No data matched your filters.");
+      return;
     }
 
-    // 7) Build "remarque" = comma-joined all Matériel (Côté 2)
-    const allMat2 = out.map(r => r["Matériel (Côté 2)"]).filter(v => v);
-    const remarque = allMat2.join(", ");
+    // 7) build remarque
+    const allMat2  = builtRows.map(r=>r["Matériel (Côté 2)"]).filter(v=>v);
+    const uniqueMat2 = Array.from(new Set(allMat2));
+    const remarque = uniqueMat2.join(", ");
+    console.log("📝 header.remarque =", remarque);
 
-    // 8) Swap logic for certain Pos Nr. (Côté 2) codes
-    const swapKeys = ["A3205701","A3212504","A3212503"];
-    const rowsFixed = out.map(r => {
-      if (swapKeys.includes(r["Pos Nr. (Côté 2)"])) {
-        // swap Pos Nr.
-        [r["Pos Nr. (Côté 1)"], r["Pos Nr. (Côté 2)"]] =
-          [r["Pos Nr. (Côté 2)"], r["Pos Nr. (Côté 1)"]];
-        // swap Cosse
-        [r["Cosse (Côté 1)"], r["Cosse (Côté 2)"]] =
-          [r["Cosse (Côté 2)"], r["Cosse (Côté 1)"]];
-      }
+    // 8) special swap
+    const SWAP_CODES = ["A3205701","A3212504","A3212503"];
+    const rowsFixed = builtRows.map(r => {
+    const cosse2 = r["Cosse (Côté 2)"]?.trim();
+     if (SWAP_CODES.includes(cosse2)) {
+       console.log(`🔄 swapping for MATNR ‘${cosse2}’ on cable ${r.Câble}:`);
+       console.log("    before →", {
+         pos1:  r["Pos Nr. (Côté 1)"].trim(),
+         cos1:  r["Cosse (Côté 1)"],
+         pos2:  r["Pos Nr. (Côté 2)"].trim(),
+         cos2:  r["Cosse (Côté 2)"]
+       });
+       const nr = { ...r };
+       // swap Pos Nr.
+       [ nr["Pos Nr. (Côté 1)"], nr["Pos Nr. (Côté 2)"] ] =
+         [ r["Pos Nr. (Côté 2)"], r["Pos Nr. (Côté 1)"] ];
+       // swap Cosse
+       [ nr["Cosse (Côté 1)"], nr["Cosse (Côté 2)"] ] =
+         [ r["Cosse (Côté 2)"], r["Cosse (Côté 1)"] ];
+       console.log("    after  →", {
+         pos1:  nr["Pos Nr. (Côté 1)"].trim(),
+         cos1:  nr["Cosse (Côté 1)"],
+         pos2:  nr["Pos Nr. (Côté 2)"].trim(),
+         cos2:  nr["Cosse (Côté 2)"]
+       });
+       return nr;
+     }
       return r;
     });
+    console.log("✅ rowsFixed after swap:", rowsFixed);
 
-    // 9) Derive module & stand
-    const fp = raw[0].FPNR.toString();
-    const moduleCode = fp.slice(0, -3);
-    const stand      = fp.slice(-3);
+    // 9) derive module & stand
+    const fp         = raw[0].FPNR.toString(),
+          moduleCode = fp.slice(0,-3),
+          stand      = fp.slice(-3);
 
-    // 10) Notify parent with everything
+    // 10) callback
     onDataReady({
-      module: moduleCode,
-      stand,
-      rows: rowsFixed,
-      remarque,
-      sectionRows: [
-        { code: "", length: "3.20 (+0.20 / -0.20)" }
-      ]
+      header: {
+        module:   moduleCode,
+        stand:    stand,
+        qs:       "",
+        remarque
+      },
+      rows:        rowsFixed,
+      sectionRows: [ { code:"", length:"3.20 (+0.20 / -0.20)" } ]
     });
   };
 
   return (
     <form onSubmit={loadAndProcess}>
       <input type="file" accept=".xlsx" onChange={onFileChange}/>
-      {name && <span style={{ marginLeft: 8 }}>{name}</span>}
-      <button type="submit" style={{ marginLeft: 12 }}>
-        Load & Preview
+      {name && <span style={{ marginLeft:8 }}>{name}</span>}
+      <button type="submit" style={{ marginLeft:12 }}>
+        Load &amp; Preview
       </button>
     </form>
   );

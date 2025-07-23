@@ -1,3 +1,4 @@
+// src/App.js
 import React, { useState } from 'react';
 import FileUploader       from './FileUploader';
 import ExcelPreviewEditor from './ExcelPreviewEditor';
@@ -6,9 +7,9 @@ import './App.css';
 
 export default function App() {
   const [previewData, setPreviewData] = useState({
-    header: { module:'', stand:'', qs:'', remarque:'' },
-    rows: [],                   // your outData
-    sectionRows: []             // { code: "", length: "" }
+    header:      { module:'', stand:'', qs:'', remarque:'' },
+    rows:        [],
+    sectionRows: []
   });
 
   return (
@@ -17,11 +18,15 @@ export default function App() {
 
       {previewData.rows.length === 0 ? (
         <FileUploader
-          onDataReady={({ module, stand, rows }) => {
+          onDataReady={({ header, rows, sectionRows }) => {
             setPreviewData({
-              header:    { module, stand, qs:'', remarque:'' },
+              // now keep the entire header, including remarque
+              header,
               rows,
-              sectionRows: []
+              // if uploader hasn’t passed sectionRows, give a default
+              sectionRows: sectionRows.length
+                ? sectionRows
+                : [{ code: '', length: '3.20 (+0.20 / -0.20)' }]
             });
           }}
         />

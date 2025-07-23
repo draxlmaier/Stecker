@@ -1,6 +1,5 @@
 // src/ExcelPreviewEditor.jsx
 import React from 'react';
-import './ExcelPreviewEditor.css';
 
 export default function ExcelPreviewEditor({
   header,
@@ -17,10 +16,10 @@ export default function ExcelPreviewEditor({
     "Matériel (Côté 1)",
     "Kam (Côté 1)",
     "Cosse (Côté 1)",
-    "Tulle (Côté 1)",
+    "Tulle (Côté 1)",    // ← always blank
     "Câble",
     "Matériel",
-    "section",
+    "section",           // ← always 0.35
     "Longueur (mm)",
     "Couleur 1",
     "Couleur 2",
@@ -31,11 +30,11 @@ export default function ExcelPreviewEditor({
     "Tulle (Côté 2)"
   ];
 
-  // header input handlers
+  // header handlers
   const hChange = field => e =>
     onHeaderChange({ ...header, [field]: e.target.value });
 
-  // cell edit handlers
+  // data row handlers
   const rowChange = (rowIdx, colKey) => e => {
     const updated = rows.map((r, i) =>
       i === rowIdx ? { ...r, [colKey]: e.target.value } : r
@@ -43,7 +42,7 @@ export default function ExcelPreviewEditor({
     onRowsChange(updated);
   };
 
-  // section edit handlers
+  // section handlers
   const secChange = (idx, field) => e => {
     const updated = sectionRows.map((s, i) =>
       i === idx ? { ...s, [field]: e.target.value } : s
@@ -52,8 +51,8 @@ export default function ExcelPreviewEditor({
   };
 
   return (
-    <div className="preview-container">
-      <table className="preview">
+    <div style={{ padding: 10 }}>
+      <table border="1" cellPadding="4" cellSpacing="0" style={{ borderCollapse: 'collapse', width: '100%' }}>
         <thead>
           {/* Row 1 */}
           <tr>
@@ -69,22 +68,22 @@ export default function ExcelPreviewEditor({
           <tr>
             <th colSpan="5">
               <input
-                className="hdr-input"
+                style={{ width: '100%' }}
                 value={header.module}
                 onChange={hChange("module")}
               />
             </th>
             <th colSpan="2">
               <input
-                className="hdr-input"
+                style={{ width: '100%' }}
                 value={header.stand}
                 onChange={hChange("stand")}
               />
             </th>
             <th colSpan="2">
               <textarea
-                className="hdr-textarea"
                 rows={3}
+                style={{ width: '100%' }}
                 value={header.remarque}
                 onChange={hChange("remarque")}
               />
@@ -102,7 +101,7 @@ export default function ExcelPreviewEditor({
             <th>Couleur 2</th>
             <th colSpan="5">Côté 2</th>
           </tr>
-          {/* Row 4 */}
+          {/* Row 4 (column titles) */}
           <tr>
             {cols.map(c => (
               <th key={c}>{c}</th>
@@ -112,15 +111,34 @@ export default function ExcelPreviewEditor({
         <tbody>
           {rows.map((row, ri) => (
             <tr key={ri}>
-              {cols.map(c => (
-                <td key={c}>
-                  <input
-                    className="cell-input"
-                    value={row[c] || ""}
-                    onChange={rowChange(ri, c)}
-                  />
-                </td>
-              ))}
+              {cols.map(c => {
+                // always‐blank Tulle (Côté 1)
+                if (c === "Tulle (Côté 1)") {
+                  return (
+                    <td key={c}>
+                      <input value="" readOnly style={{ width: '100%' }}/>
+                    </td>
+                  );
+                }
+                // always‐0.35 section
+                if (c === "section") {
+                  return (
+                    <td key={c}>
+                      <input value="0.35" readOnly style={{ width: '100%' }}/>
+                    </td>
+                  );
+                }
+                // everything else editable
+                return (
+                  <td key={c}>
+                    <input
+                      value={row[c] ?? ""}
+                      onChange={rowChange(ri, c)}
+                      style={{ width: '100%' }}
+                    />
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>
@@ -131,12 +149,15 @@ export default function ExcelPreviewEditor({
         <h3>Longueur de dénudage</h3>
         <button
           onClick={() =>
-            onSectionChange([...sectionRows, { code: '', length: '' }])
+            onSectionChange([
+              ...sectionRows,
+              { code: '', length: '3.20 (+0.20 / -0.20)' }
+            ])
           }
         >
           + Add Row
         </button>
-        <table border="1" cellPadding="4" style={{ marginTop: 8 }}>
+        <table border="1" cellPadding="4" cellSpacing="0" style={{ borderCollapse: 'collapse', marginTop: 8 }}>
           <thead>
             <tr>
               <th>Code</th>
@@ -151,12 +172,14 @@ export default function ExcelPreviewEditor({
                   <input
                     value={s.code}
                     onChange={secChange(i, 'code')}
+                    style={{ width: '100%' }}
                   />
                 </td>
                 <td>
                   <input
                     value={s.length}
-                    onChange={secChange(i, 'length')}
+                    readOnly
+                    style={{ width: '100%' }}
                   />
                 </td>
                 <td>
